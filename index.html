@@ -1,0 +1,249 @@
+<meta charset="UTF-8">
+  <title>MUSICMUSICMUSIC</title>
+  <style>
+    body {
+      background: #111;
+      color: white;
+      font-family: sans-serif;
+      text-align: center;
+      padding: 20px;
+    }
+    input, select, button {
+      padding: 10px;
+      font-size: 16px;
+      margin: 5px;
+      width: 80%;
+      max-width: 500px;
+      border-radius: 5px;
+      border: none;
+    }
+    button {
+      background: #28a745;
+      color: white;
+      cursor: pointer;
+    }
+    .result {
+      margin: 20px auto;
+      background: #222;
+      border-radius: 10px;
+      padding: 15px;
+      max-width: 700px;
+    }
+    img {
+      max-width: 100%;
+      border-radius: 10px;
+    }
+    iframe {
+      width: 100%;
+      border: none;
+      border-radius: 12px;
+      margin-top: 10px;
+    }
+    #loadMoreBtn {
+      margin: 20px auto;
+      padding: 12px 24px;
+      font-size: 18px;
+      display: none;
+      border-radius: 8px;
+      background: #0069d9;
+      color: white;
+      cursor: pointer;
+      max-width: 200px;
+      border: none;
+    }
+  </style>
+
+
+
+  <h1>MUSICMUSICMUSIC</h1>
+
+  
+  <input type="text" id="searchInput" placeholder="Search YouTube...">
+  <select id="searchType">
+    <option value="playlist">Playlists</option>
+    <option value="video">Music Videos</option>
+    <option value="both">Search Anything</option>
+    <option value="album">Albums</option>
+  </select>
+  <button onclick="startSearch()">Search</button>
+
+  <br><br>
+
+  
+  <input type="text" id="pasteInput" placeholder="Paste YouTube or Spotify link">
+  <button onclick="embedLink()">Embed Link</button>
+
+  <div id="results"></div>
+
+  <button id="loadMoreBtn" onclick="loadMore()">Load More</button>
+
+  <script>
+    const apiKey = "AIzaSyCiFG5PFIDIK5MrsLYN5PNL1O4V25K1Uag";
+    let nextPageTokens = [];
+    let lastQuery = "";
+    let lastType = "";
+    let combinedResults = [];
+
+    async function fetchYouTubeResults(query, type, pageToken = "") {
+      // If type=album, we search playlists but add "album" keyword automatically
+      let searchQuery = query;
+      let searchType = type;
+
+      if (type === "album") {
+        searchQuery += " album";  // Add album keyword to query
+        searchType = "playlist";  // Only playlists
+      }
+
+      const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=${searchType}&q=${encodeURIComponent(searchQuery)}&key=${apiKey}&maxResults=5&pageToken=${pageToken}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      return data;
+    }
+
+    async function startSearch() {
+      lastQuery = document.getElementById("searchInput").value.trim();
+      lastType = document.getElementById("searchType").value;
+      combinedResults = [];
+      nextPageTokens = [];
+
+      if (lastQuery.length < 3 && lastType !== "album") {
+        document.getElementById("results").innerHTML = "<p>Please enter at least 3 characters to search.</p>";
+        document.getElementById("loadMoreBtn").style.display = "none";
+        return;
+      }
+      // For album, we can allow empty query and still search "album"
+      if (lastType === "album" && lastQuery.length === 0) {
+        lastQuery = "";
+      }
+
+      document.getElementById("results").innerHTML = "";
+      document.getElementById("loadMoreBtn").style.display = "none";
+
+      if (lastType === "both") {
+        // Fetch playlists and videos separately
+        const playlistData = await fetchYouTubeResults(lastQuery, "playlist");
+        const videoData = await fetchYouTubeResults(lastQuery, "video");
+
+        combinedResults = [...(playlistData.items || []), ...(videoData.items || [])];
+
+        nextPageTokens = [
+          { type: "playlist", token: playlistData.nextPageToken || null },
+          { type: "video", token: videoData.nextPageToken || null }
+        ];
+      } else {
+        const data = await fetchYouTubeResults(lastQuery, lastType);
+        combinedResults = data.items || [];
+        nextPageTokens = [{ type: lastType === "album" ? "playlist" : lastType, token: data.nextPageToken || null }];
+      }
+
+      renderResults(combinedResults);
+
+      if (nextPageTokens.some(t => t.token)) {
+        document.getElementById("loadMoreBtn").style.display = "inline-block";
+      } else {
+        document.getElementById("loadMoreBtn").style.display = "none";
+      }
+    }
+
+    async function loadMore() {
+      const newResults = [];
+
+      for (let i = 0; i < nextPageTokens.length; i++) {
+        const item = nextPageTokens[i];
+        if (item.token) {
+          const data = await fetchYouTubeResults(lastQuery, item.type, item.token);
+          newResults.push(...(data.items || []));
+          nextPageTokens[i].token = data.nextPageToken || null;
+        }
+      }
+
+      combinedResults.push(...newResults);
+      renderResults(combinedResults);
+
+      if (!nextPageTokens.some(t => t.token)) {
+        document.getElementById("loadMoreBtn").style.display = "none";
+      }
+    }
+
+    function renderResults(items) {
+      const resultsDiv = document.getElementById("results");
+      resultsDiv.innerHTML = "";
+      items.forEach(item => {
+        if (!item.snippet) return;
+
+        const div = document.createElement("div");
+        div.className = "result";
+
+        const title = item.snippet.title;
+        const thumb = item.snippet.thumbnails.medium.url;
+        let embedUrl = "";
+
+        if (item.id.playlistId) {
+          embedUrl = `https://www.youtube.com/embed/videoseries?list=${item.id.playlistId}`;
+        } else if (item.id.videoId) {
+          embedUrl = `https://www.youtube.com/embed/${item.id.videoId}`;
+        } else {
+          return;
+        }
+
+        div.innerHTML = `
+          <h2>${title}</h2>
+          <img src="${thumb}" alt="Thumbnail" />
+          <iframe height="315" src="${embedUrl}" allowfullscreen allow="autoplay; encrypted-media"></iframe>
+        `;
+        resultsDiv.appendChild(div);
+      });
+    }
+
+    function embedLink() {
+      const input = document.getElementById("pasteInput").value.trim();
+      const results = document.getElementById("results");
+      results.innerHTML = "";
+
+      let embedHTML = "";
+
+      // YouTube Playlist
+      const ytPlaylistMatch = input.match(/(?:list=)([a-zA-Z0-9_-]+)/);
+      if (ytPlaylistMatch) {
+        const listId = ytPlaylistMatch[1];
+        embedHTML = `<iframe height="315" src="https://www.youtube.com/embed/videoseries?list=${listId}" allowfullscreen allow="autoplay; encrypted-media"></iframe>`;
+      }
+
+      // YouTube Video
+      const ytVideoMatch = input.match(/(?:v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+      if (ytVideoMatch && !embedHTML) {
+        const videoId = ytVideoMatch[1];
+        embedHTML = `<iframe height="315" src="https://www.youtube.com/embed/${videoId}" allowfullscreen allow="autoplay; encrypted-media"></iframe>`;
+      }
+
+      // Spotify Playlist
+      const spotifyPlaylist = input.match(/open\.spotify\.com\/playlist\/([a-zA-Z0-9]+)/);
+      if (spotifyPlaylist) {
+        const id = spotifyPlaylist[1];
+        embedHTML = `<iframe style="border-radius:12px" src="https://open.spotify.com/embed/playlist/${id}" width="100%" height="380" frameborder="0" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe>`;
+      }
+
+      // Spotify Album
+      const spotifyAlbum = input.match(/open\.spotify\.com\/album\/([a-zA-Z0-9]+)/);
+      if (spotifyAlbum) {
+        const id = spotifyAlbum[1];
+        embedHTML = `<iframe style="border-radius:12px" src="https://open.spotify.com/embed/album/${id}" width="100%" height="380" frameborder="0" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe>`;
+      }
+
+      // Spotify Track
+      const spotifyTrack = input.match(/open\.spotify\.com\/track\/([a-zA-Z0-9]+)/);
+      if (spotifyTrack) {
+        const id = spotifyTrack[1];
+        embedHTML = `<iframe style="border-radius:12px" src="https://open.spotify.com/embed/track/${id}" width="100%" height="152" frameborder="0" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe>`;
+      }
+
+      if (embedHTML) {
+        const div = document.createElement("div");
+        div.className = "result";
+        div.innerHTML = embedHTML;
+        results.appendChild(div);
+      } else {
+        results.innerHTML = "<p>Unrecognized or unsupported link. Paste a full YouTube or Spotify link.</p>";
+      }
+    }
+  </script>
